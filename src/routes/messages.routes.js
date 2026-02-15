@@ -2,6 +2,7 @@ import { Router } from "express";
 import { pool } from "../db.js";
 import { z } from "zod";
 import { authRequired } from "../middleware/auth.js";
+import { resolveUploadedMediaUrl } from "../middleware/upload.js";
 
 export const messagesRouter = Router();
 messagesRouter.use(authRequired);
@@ -52,7 +53,9 @@ messagesRouter.post("/conversations", async (req, res, next) => {
     const ownerId = listing.owner_user_id;
 
     // Don't allow messaging yourself
-    if (ownerId === userId) return res.status(400).json({ error: "Cannot message your own listing" });
+    if (String(ownerId) === String(userId)) {
+      return res.status(400).json({ error: "Cannot message your own listing" });
+    }
 
     // Reuse existing conversation for same listing between these two users if exists
     const existingQ = await pool.query(
@@ -118,9 +121,15 @@ messagesRouter.get("/conversations/me", async (req, res, next) => {
         l.currency,
         l.room_type,
         l.status AS listing_status,
+        lp.url AS listing_photo_url,
 
         ci.name AS city,
         ci.country_code,
+
+        other.user_id AS other_user_id,
+        other.email AS other_user_email,
+        other.display_name AS other_user_display_name,
+        other.avatar_url AS other_user_avatar_url,
 
         -- last message preview
         m.body AS last_message_body,
@@ -134,6 +143,27 @@ messagesRouter.get("/conversations/me", async (req, res, next) => {
         ON cp.conversation_id = c.id AND cp.user_id = $1
       JOIN listings l ON l.id = c.listing_id
       JOIN cities ci ON ci.id = l.city_id
+      LEFT JOIN LATERAL (
+        SELECT url
+        FROM listing_photos
+        WHERE listing_id = l.id
+        ORDER BY position ASC, created_at ASC
+        LIMIT 1
+      ) lp ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          u2.id AS user_id,
+          u2.email AS email,
+          COALESCE(up2.display_name, split_part(u2.email, '@', 1)) AS display_name,
+          up2.avatar_url AS avatar_url
+        FROM conversation_participants cp2
+        JOIN users u2 ON u2.id = cp2.user_id
+        LEFT JOIN user_profiles up2 ON up2.user_id = u2.id
+        WHERE cp2.conversation_id = c.id
+          AND cp2.user_id <> $1
+        ORDER BY cp2.participant_role ASC
+        LIMIT 1
+      ) other ON true
       LEFT JOIN LATERAL (
         SELECT body, created_at, sender_user_id
         FROM messages
@@ -163,9 +193,18 @@ messagesRouter.get("/conversations/me", async (req, res, next) => {
           currency: row.currency,
           roomType: row.room_type,
           status: row.listing_status,
+          photoUrl: resolveUploadedMediaUrl(req, row.listing_photo_url),
           city: row.city,
           countryCode: row.country_code
         },
+        otherUser: row.other_user_id
+          ? {
+              id: row.other_user_id,
+              email: row.other_user_email,
+              displayName: row.other_user_display_name,
+              avatarUrl: resolveUploadedMediaUrl(req, row.other_user_avatar_url)
+            }
+          : null,
         lastMessage: row.last_message_body
           ? {
               body: row.last_message_body,

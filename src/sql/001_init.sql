@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS cities (
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   display_name VARCHAR(80) NOT NULL,
+  avatar_url TEXT NULL,
   city_id INT NULL REFERENCES cities(id),
   budget_min INT NULL,
   budget_max INT NULL,
@@ -66,6 +67,10 @@ CREATE TABLE IF NOT EXISTS listings (
   gender_preference VARCHAR(20) NOT NULL DEFAULT 'ANY',
   address_text TEXT NULL,
   approx_location TEXT NULL,
+  latitude DOUBLE PRECISION NULL,
+  longitude DOUBLE PRECISION NULL,
+  google_maps_place_id VARCHAR(200) NULL,
+  google_maps_url TEXT NULL,
   available_from DATE NULL,
   status VARCHAR(20) NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PENDING','APPROVED','REJECTED','ARCHIVED','DELETED')),
   reviewed_by_admin_id UUID NULL REFERENCES users(id),
